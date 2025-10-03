@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package search;
+
+option go_package = "auroraseek/proto;searchpb";
+
+service SearchService {
+  rpc Query (SearchRequest) returns (SearchResponse);
+}
+
+message SearchRequest {
+  string query = 1;
+  uint32 k = 2; // number of results
+}
+
+message SearchHit {
+  string id = 1;
+  string title = 2;
+  string snippet = 3;
+  double score = 4;
+}
+
+message SearchResponse {
+  repeated SearchHit hits = 1;
+}
+
