@@ -18,9 +18,19 @@ type Page struct {
 var mem = index.NewMem()
 
 func main() {
-	brokers := []string{os.Getenv("KAFKA_BROKERS")}
+	kafkaBrokers := os.Getenv("KAFKA_BROKERS")
+	if kafkaBrokers == "" {
+		kafkaBrokers = "localhost:9092"
+		log.Printf("WARNING: KAFKA_BROKERS not set, using default: %s", kafkaBrokers)
+	} else {
+		log.Printf("Using KAFKA_BROKERS: %s", kafkaBrokers)
+	}
+	
+	brokers := []string{kafkaBrokers}
 	topic := getenv("KAFKA_TOPIC_PAGES", "pages")
 	group := "indexer"
+
+	log.Printf("Connecting to Kafka at %v, topic: %s, group: %s", brokers, topic, group)
 
 	r := kafka.NewReader(brokers, topic, group)
 	defer r.Close()
@@ -36,7 +46,8 @@ func main() {
 	for {
 		m, err := r.ReadMessage(context.Background())
 		if err != nil {
-			log.Fatal(err)
+			log.Printf("Error reading message: %v", err)
+			continue
 		}
 
 		var pg Page

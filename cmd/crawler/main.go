@@ -18,8 +18,18 @@ type Page struct {
 }
 
 func main() {
-	brokers := []string{os.Getenv("KAFKA_BROKERS")}
+	kafkaBrokers := os.Getenv("KAFKA_BROKERS")
+	if kafkaBrokers == "" {
+		kafkaBrokers = "localhost:9092"
+		log.Printf("WARNING: KAFKA_BROKERS not set, using default: %s", kafkaBrokers)
+	} else {
+		log.Printf("Using KAFKA_BROKERS: %s", kafkaBrokers)
+	}
+	
+	brokers := []string{kafkaBrokers}
 	topic := getenv("KAFKA_TOPIC_PAGES", "pages")
+
+	log.Printf("Connecting to Kafka at %v, topic: %s", brokers, topic)
 
 	p := kafka.NewProducer(brokers, topic)
 	defer p.Close()

@@ -12,4 +12,4 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /app/crawler ./cmd/crawler && \
 
 FROM gcr.io/distroless/base-debian12
 COPY --from=build /app /app
-ENTRYPOINT ["/bin/sh", "-c", "echo Specify command in docker-compose"]
+WORKDIR /app
