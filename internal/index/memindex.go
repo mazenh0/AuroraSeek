@@ -1,75 +1,90 @@
 package index
 
-import "sync"
+import (
+	"sync"
 
-// Doc represents a simple document in the index.
+	"github.com/mazenh0/auroraseek/internal/util"
+)
+
 type Doc struct {
-    ID    string
-    Title string
-    Text  string
+	ID    string
+	URL   string
+	Title string
+	Body  string
+	TF    map[string]int
+	DL    int
 }
 
-// Posting captures term frequency within a document.
-type Posting struct {
-    DocID string
-    TF    int
-}
-
-// MemIndex is an in-memory inverted index placeholder.
 type MemIndex struct {
-    mu       sync.RWMutex
-    postings map[string][]Posting // term -> postings
-    docs     map[string]Doc
-    totalDl  int
+	mu       sync.RWMutex
+	postings map[string]map[string]int // term -> docID -> tf
+	docs     map[string]*Doc
+	df       map[string]int
+	totalLen int
 }
 
-// NewMem creates a new empty memory index.
 func NewMem() *MemIndex {
-    return &MemIndex{
-        postings: make(map[string][]Posting),
-        docs:     make(map[string]Doc),
-    }
+	return &MemIndex{
+		postings: map[string]map[string]int{},
+		docs:     map[string]*Doc{},
+		df:       map[string]int{},
+	}
 }
 
-// AddDoc indexes a document with a simple whitespace tokenizer.
-func (mi *MemIndex) AddDoc(d Doc, tokenize func(string) []string) {
-    mi.mu.Lock()
-    defer mi.mu.Unlock()
-    mi.docs[d.ID] = d
-    terms := tokenize(d.Text)
-    tf := map[string]int{}
-    for _, t := range terms {
-        tf[t]++
-    }
-    for term, cnt := range tf {
-        mi.postings[term] = append(mi.postings[term], Posting{DocID: d.ID, TF: cnt})
-    }
-    mi.totalDl += len(terms)
+func (m *MemIndex) Add(id, url, title, body string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	toks := util.Tokens(title + " " + body)
+	tf := map[string]int{}
+	for _, t := range toks {
+		tf[t]++
+	}
+
+	d := &Doc{ID: id, URL: url, Title: title, Body: body, TF: tf, DL: len(toks)}
+	m.docs[id] = d
+	m.totalLen += d.DL
+
+	seen := map[string]bool{}
+	for term, f := range tf {
+		if m.postings[term] == nil {
+			m.postings[term] = map[string]int{}
+		}
+		m.postings[term][id] = f
+		if !seen[term] {
+			m.df[term]++
+			seen[term] = true
+		}
+	}
 }
 
-// Stats returns document count and average document length.
-func (mi *MemIndex) Stats() (docs int, avgDl float64) {
-    mi.mu.RLock()
-    defer mi.mu.RUnlock()
-    n := len(mi.docs)
-    if n == 0 {
-        return 0, 0
-    }
-    return n, float64(mi.totalDl) / float64(n)
+func (m *MemIndex) Snapshot() (N int, avgDL float64, df map[string]int) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	N = len(m.docs)
+	if N == 0 {
+		return 0, 1, map[string]int{}
+	}
+	avgDL = float64(m.totalLen) / float64(N)
+
+	// shallow copy of df
+	df = map[string]int{}
+	for k, v := range m.df {
+		df[k] = v
+	}
+	return
 }
 
-// Postings returns postings for a term.
-func (mi *MemIndex) Postings(term string) []Posting {
-    mi.mu.RLock()
-    defer mi.mu.RUnlock()
-    return mi.postings[term]
-}
+func (m *MemIndex) Candidates(terms []string) map[string]*Doc {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 
-// Doc returns a document by ID.
-func (mi *MemIndex) Doc(id string) (Doc, bool) {
-    mi.mu.RLock()
-    defer mi.mu.RUnlock()
-    d, ok := mi.docs[id]
-    return d, ok
+	cand := map[string]*Doc{}
+	for _, t := range terms {
+		for docID := range m.postings[t] {
+			cand[docID] = m.docs[docID]
+		}
+	}
+	return cand
 }
-
