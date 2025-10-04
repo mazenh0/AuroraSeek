@@ -1,0 +1,14 @@
+# Exclude shell/build scripts from language statistics
+*.sh linguist-vendored
+Makefile linguist-vendored
+
+# Exclude Docker config files
+docker-compose.yml linguist-vendored
+*.dockerfile linguist-vendored
+Dockerfile linguist-vendored
+
+# Ensure proto files are counted as code
+*.proto linguist-language=Protocol Buffer
+
+# Mark generated protobuf code appropriately
+gen/ linguist-generated
