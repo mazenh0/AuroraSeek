@@ -8,8 +8,6 @@ from sentence_transformers import SentenceTransformer
 app = FastAPI()
 
 # Load sentence transformer model for semantic embeddings
-# Using a lightweight, fast model suitable for reranking
-# all-MiniLM-L6-v2 is a good balance of speed and quality
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
 class Candidate(BaseModel):
@@ -30,17 +28,9 @@ def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
 
 @app.post("/rerank", response_model=RerankOut)
 async def rerank(inp: RerankIn):
-    """
-    Rerank candidates using semantic embeddings from sentence-transformers.
-    This provides much better search quality than bag-of-words.
-    """
-    # Encode query into semantic embedding
+    """Rerank candidates using semantic embeddings."""
     query_embedding = model.encode(inp.query, convert_to_numpy=True, normalize_embeddings=True)
-    
-    # Prepare candidate texts (title + body)
     candidate_texts = [f"{c.title} {c.body}" for c in inp.candidates]
-    
-    # Encode all candidates in batch for efficiency
     candidate_embeddings = model.encode(
         candidate_texts,
         convert_to_numpy=True,
@@ -48,18 +38,13 @@ async def rerank(inp: RerankIn):
         show_progress_bar=False
     )
     
-    # Compute cosine similarity between query and each candidate
     scored = []
     for i, candidate in enumerate(inp.candidates):
         similarity = cosine_similarity(query_embedding, candidate_embeddings[i])
         scored.append((candidate.id, float(similarity)))
     
-    # Sort by similarity score (descending)
     scored.sort(key=lambda x: x[1], reverse=True)
-    
-    # Return ordered list of candidate IDs
-    ordered = [sid for sid, _ in scored]
-    return RerankOut(order=ordered)
+    return RerankOut(order=[sid for sid, _ in scored])
 
 @app.get("/health")
 async def health():

@@ -17,10 +17,9 @@ import (
 	"google.golang.org/grpc"
 )
 
-// For demo, share in-memory index in-process.
 var mem = index.NewMem()
 
-// Seed a couple docs so Search works even before indexer loads.
+// seed adds sample documents so search works before indexer loads
 func seed() {
 	mem.Add("1", "https://example.com", "Example Domain", "This domain is for use in illustrative examples in documents.")
 	mem.Add("2", "https://golang.org", "Go", "Go is an open source programming language that makes it easy to build simple, reliable, and efficient software.")
@@ -128,20 +127,6 @@ func ids(c []map[string]string) []string {
 		r[i] = x["id"]
 	}
 	return r
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func truncate(s string, n int) string {

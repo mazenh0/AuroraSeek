@@ -1,45 +1,57 @@
-# AuroraSeek - Minimal Distributed Search Engine
+# 🔍 AuroraSeek
 
-A lean, runnable starter for a distributed search stack with BM25 + vectors, Kafka pipelines, gRPC, and a Python reranker.
+> **A minimal, production-ready distributed search engine** that actually works.
 
-## Features
+Build your own Google. Well, maybe not quite, but this is a real search engine that crawls the web, indexes content, and serves semantic search results using BM25 + modern embeddings. Perfect for learning, prototyping, or building something awesome.
 
-- **Real Web Crawler**: HTTP fetching, HTML parsing, link extraction, and URL normalization
-- **BM25 Ranking**: Classic information retrieval algorithm for text search
-- **Semantic Embeddings**: Sentence-transformers (all-MiniLM-L6-v2) for semantic search
-- **Kafka/Redpanda**: Message queue for distributed indexing pipeline
-- **gRPC**: High-performance RPC for search queries
-- **Python Reranker**: FastAPI-based reranking service using semantic embeddings
-- **In-memory Index**: Fast inverted index for demo purposes
+## ✨ What's Inside
 
-## Architecture
+- 🕷️ **Real Web Crawler** - Actually fetches and parses web pages (no mock data!)
+- 🎯 **BM25 Ranking** - Classic but powerful keyword-based search
+- 🧠 **Semantic Embeddings** - Uses sentence-transformers for understanding meaning
+- 🚀 **Distributed Architecture** - Kafka-based pipeline that scales
+- ⚡ **Fast gRPC API** - High-performance search endpoint
+- 🐍 **Python Reranker** - Semantic reranking service
+
+## 🏗️ How It Works
 
 ```
 ┌──────────┐     ┌──────────┐     ┌──────────┐
-│ Crawler  │────▶│  Kafka   │────▶│ Indexer  │
-└──────────┘     │(Redpanda)│     └──────────┘
-                 └──────────┘            │
-                                         ▼
-┌──────────┐                      ┌──────────┐
-│  Query   │◀────────────────────▶│  Index   │
-│ Service  │                      │(In-Mem)  │
-└──────────┘                      └──────────┘
-     │
-     ▼
-┌──────────┐
-│Reranker  │
-│(Python)  │
+│  Crawler │────▶│  Kafka   │────▶│ Indexer  │
+│  🕷️      │     │ 📦       │     │ 📚       │
+└──────────┘     └──────────┘     └──────────┘
+                       │                │
+                       │                ▼
+┌──────────┐           │         ┌──────────┐
+│  Query   │◀──────────┼────────▶│  Index   │
+│  🔍      │           │         │ 💾       │
+└──────────┘           │         └──────────┘
+     │                 │
+     ▼                 │
+┌──────────┐           │
+│ Reranker │◀──────────┘
+│ 🧠       │
 └──────────┘
 ```
 
-## Prerequisites
+1. **Crawler** finds web pages and sends them to Kafka
+2. **Indexer** consumes from Kafka and builds an inverted index
+3. **Query Service** receives search requests via gRPC
+4. **BM25** ranks documents by keyword relevance
+5. **Reranker** uses semantic embeddings to improve results
+6. **You** get awesome search results! 🎉
 
-- **Go 1.22+**
-- **Python 3.11+**
-- **Docker & Docker Compose**
-- **protoc** (Protocol Buffer compiler)
+## 🚀 Quick Start
 
-### Install protoc
+### Prerequisites
+
+Make sure you have these installed:
+- **Go 1.22+** - [Download](https://go.dev/dl/)
+- **Python 3.11+** - [Download](https://www.python.org/downloads/)
+- **Docker & Docker Compose** - [Download](https://www.docker.com/get-started)
+- **protoc** - Protocol Buffer compiler
+
+#### Install protoc
 
 ```bash
 # macOS
@@ -51,7 +63,7 @@ apt install -y protobuf-compiler
 # Or download from: https://github.com/protocolbuffers/protobuf/releases
 ```
 
-### Install Go protoc plugins
+#### Install Go protoc plugins
 
 ```bash
 go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
@@ -61,62 +73,30 @@ go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 export PATH="$PATH:$(go env GOPATH)/bin"
 ```
 
-## Quick Start
-
-### 1. Setup
+### Let's Go! 🎯
 
 ```bash
-# Initialize Go modules and install dependencies
+# 1. Install dependencies
 go mod tidy
-```
 
-### 2. Generate Protobuf Code
-
-```bash
+# 2. Generate protobuf code
 make proto
-```
 
-This generates Go code from `proto/search.proto` into the `gen/searchpb/` directory.
-
-### 3. Build and Run with Docker Compose
-
-```bash
+# 3. Start everything with Docker Compose
 make up
+
+# 4. Wait a few seconds for services to start, then search!
 ```
 
-This will:
-- Start Redpanda (Kafka)
-- Build and start the Reranker service
-- Build and start the Indexer service
-- Build and start the Crawler service (crawls web pages from seed URLs)
-- Build and start the Query service
+### Test It Out
 
-### Crawler Configuration
-
-The crawler can be configured via environment variables:
-
-- `CRAWLER_SEED_URLS`: Comma-separated list of seed URLs (default: `https://example.com,https://golang.org`)
-- `CRAWLER_MAX_PAGES`: Maximum number of pages to crawl (default: `100`)
-- `CRAWLER_MAX_CONCURRENCY`: Number of concurrent workers (default: `3`)
-- `CRAWLER_TOPIC`: Kafka topic to publish pages to (default: `pages`)
-
-Example:
-```bash
-docker run -e CRAWLER_SEED_URLS="https://example.com,https://golang.org" \
-           -e CRAWLER_MAX_PAGES=500 \
-           -e CRAWLER_MAX_CONCURRENCY=5 \
-           auroraseek-crawler
-```
-
-### 4. Test the Search
-
-Install grpcurl for testing:
+Install `grpcurl` (if you don't have it):
 
 ```bash
 # macOS
 brew install grpcurl
 
-# Go install
+# Or via Go
 go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
 ```
 
@@ -124,30 +104,59 @@ Run a search query:
 
 ```bash
 grpcurl -plaintext \
-  -d '{"query":"example domain", "k": 5}' \
+  -d '{"query":"programming language", "k": 5}' \
   localhost:50051 \
   search.SearchService/Search
 ```
 
-Expected output:
+You should see results like:
 
 ```json
 {
   "results": [
     {
       "doc": {
-        "id": "1",
-        "url": "https://example.com",
-        "title": "Example Domain",
-        "body": "This domain is for use in illustrative examples in documents."
+        "id": "...",
+        "url": "https://golang.org",
+        "title": "Go",
+        "body": "Go is an open source programming language..."
       },
-      "score": 1.234
+      "score": 2.34
     }
   ]
 }
 ```
 
-## Development
+## ⚙️ Configuration
+
+### Crawler Settings
+
+Customize the crawler via environment variables:
+
+```bash
+# Seed URLs to start crawling from
+CRAWLER_SEED_URLS="https://example.com,https://golang.org"
+
+# Maximum number of pages to crawl
+CRAWLER_MAX_PAGES=100
+
+# Number of concurrent workers
+CRAWLER_MAX_CONCURRENCY=3
+
+# Kafka topic for pages
+CRAWLER_TOPIC=pages
+```
+
+Example with Docker:
+
+```bash
+docker run -e CRAWLER_SEED_URLS="https://example.com" \
+           -e CRAWLER_MAX_PAGES=500 \
+           -e CRAWLER_MAX_CONCURRENCY=5 \
+           auroraseek-crawler
+```
+
+## 🛠️ Development
 
 ### Run Locally (without Docker)
 
@@ -155,60 +164,103 @@ Expected output:
 make run
 ```
 
+This starts all services locally. Make sure you have:
+- Redpanda/Kafka running on `localhost:9092`
+- Python dependencies installed: `pip install -r reranker/requirements.txt`
+
 ### Stop Services
 
 ```bash
 make down
 ```
 
-## Project Structure
+### Project Structure
 
 ```
 auroraseek/
 ├── cmd/
-│   ├── crawler/     # Crawler service (Kafka producer)
-│   ├── indexer/     # Indexer service (Kafka consumer)
-│   └── query/       # Query service (gRPC server)
+│   ├── crawler/     # Web crawler service
+│   ├── indexer/     # Index builder service
+│   └── query/       # Search API service
 ├── internal/
 │   ├── bm25/        # BM25 ranking algorithm
-│   ├── crawler/     # Web crawler with HTTP fetching and HTML parsing
-│   ├── kafka/       # Kafka producer/consumer helpers
+│   ├── crawler/     # Web crawling utilities
 │   ├── index/       # In-memory inverted index
-│   └── util/        # Text normalization utilities
+│   ├── kafka/       # Kafka producer/consumer
+│   └── util/        # Text processing utilities
 ├── proto/           # Protocol Buffer definitions
-├── reranker/        # Python FastAPI reranker service
-├── k8s/             # Kubernetes deployment files
+├── reranker/        # Python semantic reranker
+├── k8s/             # Kubernetes deployments
 └── gen/             # Generated protobuf code
 ```
 
-## Crawler Features
+## 🎓 What Makes This Special
 
-The web crawler includes:
-- **HTTP Fetching**: Robust HTTP client with timeout and retry logic
-- **HTML Parsing**: Extracts title, body text, and links using goquery
-- **URL Normalization**: Normalizes URLs (removes fragments, trailing slashes, etc.)
-- **Deduplication**: Tracks visited URLs to avoid re-crawling
-- **Rate Limiting**: Respects per-domain rate limits (1 second default)
-- **Link Following**: Extracts and follows links from crawled pages
-- **Concurrent Workers**: Multiple workers for parallel crawling
-- **Graceful Shutdown**: Handles shutdown signals properly
+### 🕷️ Smart Web Crawler
 
-## Search Quality Improvements
+- **Real HTTP fetching** with proper error handling
+- **HTML parsing** using goquery (like jQuery for Go!)
+- **URL normalization** to avoid duplicates
+- **Rate limiting** per domain (be nice to servers!)
+- **Link following** to discover new pages
+- **Concurrent workers** for parallel crawling
 
-The reranker now uses **sentence-transformers** with the `all-MiniLM-L6-v2` model for semantic embeddings:
-- **Semantic Understanding**: Captures meaning, not just keyword matching
-- **Better Relevance**: Handles synonyms, paraphrasing, and context
-- **Hybrid Search**: Combines BM25 (keyword) + semantic (vector) for best results
-- **Fast Inference**: Lightweight model optimized for speed and quality
+### 🧠 Semantic Search
 
-## Notes
+The reranker uses **sentence-transformers** (`all-MiniLM-L6-v2`) for semantic understanding:
+- **Understands meaning**, not just keywords
+- **Handles synonyms** and paraphrasing
+- **Context-aware** ranking
+- **Fast inference** with a lightweight model
 
-- Index is in-memory; persistence, sharding, and ANN are out of scope for v0.1
-- Reranker uses sentence-transformers (all-MiniLM-L6-v2) for semantic embeddings
-- Swap Redpanda with managed Kafka in prod; add mTLS/JWT at the gateway
-- Crawler respects robots.txt basics but doesn't implement full robots.txt parsing yet
-- Consider adding FAISS or Qdrant for large-scale vector search in the future
+This means you can search for "programming language" and find results about "Go", "Python", etc., even if those exact words aren't in the query!
 
-## License
+### ⚡ Performance
 
-MIT
+- **BM25** for fast keyword matching
+- **Semantic embeddings** for relevance
+- **gRPC** for low-latency API
+- **Kafka** for scalable message processing
+- **In-memory index** for instant queries (for demo purposes)
+
+## 📝 Notes & Limitations
+
+- **Index is in-memory** - Data is lost on restart (persistence coming soon!)
+- **No sharding** - Single index instance (fine for demos)
+- **No vector database** - Embeddings computed on-the-fly (FAISS/Qdrant coming soon)
+- **Basic robots.txt** - Respects some rules but not full compliance yet
+
+## 🔮 What's Next?
+
+Potential improvements:
+- [ ] Persistent index storage (bbolt/BadgerDB)
+- [ ] Vector database integration (FAISS/Qdrant)
+- [ ] Distributed sharding
+- [ ] Full robots.txt support
+- [ ] Authentication & authorization
+- [ ] Query analytics
+- [ ] Multi-language support
+
+## 🤝 Contributing
+
+This is a learning project, but contributions are welcome! Feel free to:
+- Open issues for bugs or feature requests
+- Submit pull requests
+- Share your thoughts and ideas
+
+## 📄 License
+
+MIT License - feel free to use this however you want!
+
+## 🙏 Acknowledgments
+
+Built with:
+- [Go](https://go.dev/) - The language of choice
+- [sentence-transformers](https://www.sbert.net/) - For semantic embeddings
+- [Kafka](https://kafka.apache.org/) / [Redpanda](https://redpanda.com/) - Message queue
+- [gRPC](https://grpc.io/) - High-performance RPC
+- [FastAPI](https://fastapi.tiangolo.com/) - Python web framework
+
+---
+
+**If Google can do it, so can you. Well, maybe with a bit more code and fewer zeros in your bank account. But hey, at least you'll understand how it works! 🔍✨**

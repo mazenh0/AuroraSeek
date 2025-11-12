@@ -100,10 +100,7 @@ func NormalizeURL(rawURL string) (string, error) {
 	if u.Path != "/" && strings.HasSuffix(u.Path, "/") {
 		u.Path = strings.TrimSuffix(u.Path, "/")
 	}
-
-	// Sort query parameters (optional, for consistency)
-	// u.RawQuery = u.Query().Encode()
-
+	
 	return u.String(), nil
 }
 

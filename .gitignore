@@ -9,7 +9,6 @@
 /crawler
 /indexer
 /query
-/pronto
 /reranker
 
 # Test binary, built with `go test -c`
