@@ -6,9 +6,10 @@ A lean, runnable starter for a distributed search stack with BM25 + vectors, Kaf
 
 - **Real Web Crawler**: HTTP fetching, HTML parsing, link extraction, and URL normalization
 - **BM25 Ranking**: Classic information retrieval algorithm for text search
+- **Semantic Embeddings**: Sentence-transformers (all-MiniLM-L6-v2) for semantic search
 - **Kafka/Redpanda**: Message queue for distributed indexing pipeline
 - **gRPC**: High-performance RPC for search queries
-- **Python Reranker**: FastAPI-based reranking service using cosine similarity
+- **Python Reranker**: FastAPI-based reranking service using semantic embeddings
 - **In-memory Index**: Fast inverted index for demo purposes
 
 ## Architecture
@@ -192,12 +193,21 @@ The web crawler includes:
 - **Concurrent Workers**: Multiple workers for parallel crawling
 - **Graceful Shutdown**: Handles shutdown signals properly
 
+## Search Quality Improvements
+
+The reranker now uses **sentence-transformers** with the `all-MiniLM-L6-v2` model for semantic embeddings:
+- **Semantic Understanding**: Captures meaning, not just keyword matching
+- **Better Relevance**: Handles synonyms, paraphrasing, and context
+- **Hybrid Search**: Combines BM25 (keyword) + semantic (vector) for best results
+- **Fast Inference**: Lightweight model optimized for speed and quality
+
 ## Notes
 
 - Index is in-memory; persistence, sharding, and ANN are out of scope for v0.1
-- Reranker is a trivial cosine baseline; drop in a cross-encoder later
+- Reranker uses sentence-transformers (all-MiniLM-L6-v2) for semantic embeddings
 - Swap Redpanda with managed Kafka in prod; add mTLS/JWT at the gateway
 - Crawler respects robots.txt basics but doesn't implement full robots.txt parsing yet
+- Consider adding FAISS or Qdrant for large-scale vector search in the future
 
 ## License
 
