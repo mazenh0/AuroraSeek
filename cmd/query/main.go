@@ -10,13 +10,14 @@ import (
 	"os"
 	"os/signal"
 	"sort"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	pb "github.com/mazenh0/auroraseek/gen/searchpb"
 	"github.com/mazenh0/auroraseek/internal/bm25"
+	"github.com/mazenh0/auroraseek/internal/circuitbreaker"
+	"github.com/mazenh0/auroraseek/internal/httpclient"
 	"github.com/mazenh0/auroraseek/internal/index"
 	"github.com/mazenh0/auroraseek/internal/util"
 	"go.etcd.io/bbolt"
@@ -24,9 +25,12 @@ import (
 )
 
 var (
-	mem        *index.PersistentIndex
-	memMu      sync.RWMutex
-	lastReload time.Time
+	mem           *index.PersistentIndex
+	memMu         sync.RWMutex
+	lastReload    time.Time
+	httpClient    *httpclient.Client
+	circuitBreaker *circuitbreaker.CircuitBreaker
+	rerankerURL   string
 )
 
 // loadIndex loads the persistent index from disk
@@ -162,7 +166,7 @@ func (s *server) Search(ctx context.Context, req *pb.QueryRequest) (*pb.QueryRes
 		})
 	}
 
-	reranked := callReranker(os.Getenv("RERANKER_URL"), req.Query, cands)
+	reranked := callReranker(ctx, rerankerURL, req.Query, cands)
 
 	// Merge reranked order
 	id2score := map[string]float64{}
@@ -197,28 +201,55 @@ func (s *server) Search(ctx context.Context, req *pb.QueryRequest) (*pb.QueryRes
 	return res, nil
 }
 
-func callReranker(url, query string, cands []map[string]string) []string {
+// callReranker calls the reranker service with timeout, retry, and circuit breaker
+func callReranker(ctx context.Context, url string, query string, cands []map[string]string) []string {
 	if url == "" {
+		log.Printf("Reranker URL not configured, skipping reranking")
 		return ids(cands)
 	}
 
-	body := map[string]any{"query": query, "candidates": cands}
-	b, _ := json.Marshal(body)
-	resp, err := http.Post(url, "application/json", strings.NewReader(string(b)))
-	if err != nil {
-		return ids(cands)
+	// Prepare request body
+	reqBody := map[string]any{
+		"query":      query,
+		"candidates": cands,
 	}
-	defer resp.Body.Close()
 
+	// Execute with circuit breaker
 	var out struct {
 		Order []string `json:"order"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+
+	err := circuitBreaker.Execute(func() error {
+		// Make HTTP request with timeout and retry
+		resp, err := httpClient.PostJSON(ctx, url, reqBody)
+		if err != nil {
+			return fmt.Errorf("reranker request failed: %w", err)
+		}
+
+		// Decode response
+		if err := httpclient.DecodeJSON(resp, &out); err != nil {
+			return fmt.Errorf("failed to decode reranker response: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		if err == circuitbreaker.ErrCircuitOpen {
+			log.Printf("Circuit breaker is open for reranker service, using fallback results")
+		} else {
+			log.Printf("Reranker call failed: %v, using fallback results", err)
+		}
 		return ids(cands)
 	}
+
+	// Validate response
 	if len(out.Order) == 0 {
+		log.Printf("Reranker returned empty order, using fallback results")
 		return ids(cands)
 	}
+
+	log.Printf("Reranker returned %d results", len(out.Order))
 	return out.Order
 }
 
@@ -238,6 +269,32 @@ func truncate(s string, n int) string {
 }
 
 func main() {
+	// Initialize HTTP client with timeout and retry
+	httpClientConfig := httpclient.DefaultConfig()
+	httpClientConfig.Timeout = 5 * time.Second // 5 second timeout for reranker
+	httpClientConfig.MaxRetries = 3
+	httpClient = httpclient.NewClient(httpClientConfig)
+
+	// Initialize circuit breaker for reranker service
+	cbConfig := circuitbreaker.DefaultConfig()
+	cbConfig.FailureThreshold = 5
+	cbConfig.SuccessThreshold = 2
+	cbConfig.Timeout = 30 * time.Second
+	circuitBreaker = circuitbreaker.NewCircuitBreaker(cbConfig)
+	
+	// Set up circuit breaker state change logging
+	circuitBreaker.SetOnStateChange(func(from, to circuitbreaker.State) {
+		log.Printf("Circuit breaker state changed: %v -> %v (reranker service)", from, to)
+	})
+
+	// Get reranker URL from environment
+	rerankerURL = os.Getenv("RERANKER_URL")
+	if rerankerURL == "" {
+		log.Printf("WARNING: RERANKER_URL not set, reranking will be skipped")
+	} else {
+		log.Printf("Reranker URL: %s", rerankerURL)
+	}
+
 	// Load persistent index
 	if err := loadIndex(); err != nil {
 		log.Fatalf("Failed to load index: %v", err)
@@ -274,28 +331,67 @@ func main() {
 
 	// Health check endpoint
 	go func() {
-		http.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		mux := http.NewServeMux()
+		
+		// Liveness probe
+		mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("ok"))
+		})
+		
+		// Readiness probe with detailed status
+		mux.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) {
 			memMu.RLock()
 			currentMem := mem
 			reloadTime := lastReload
 			memMu.RUnlock()
 
 			docCount := 0
+			indexReady := currentMem != nil
 			if currentMem != nil {
 				docCount, _, _ = currentMem.Stats()
 			}
 
+			// Check circuit breaker state
+			cbState := circuitBreaker.State()
+			cbFailures, cbSuccesses, _ := circuitBreaker.Stats()
+
+			status := map[string]interface{}{
+				"status":       "ok",
+				"doc_count":    docCount,
+				"index_ready":  indexReady,
+				"index_path":   getenv("INDEX_DB_PATH", "/data/index.db"),
+				"last_reload":  reloadTime.Format(time.RFC3339),
+				"reranker_url": rerankerURL,
+				"circuit_breaker": map[string]interface{}{
+					"state":    cbState.String(),
+					"failures": cbFailures,
+					"successes": cbSuccesses,
+				},
+			}
+
 			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(200)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"status":      "ok",
-				"doc_count":   docCount,
-				"index_path":  getenv("INDEX_DB_PATH", "/data/index.db"),
-				"last_reload": reloadTime.Format(time.RFC3339),
-			})
+			if !indexReady {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				status["status"] = "not ready"
+			} else {
+				w.WriteHeader(http.StatusOK)
+			}
+			json.NewEncoder(w).Encode(status)
 		})
+
+		server := &http.Server{
+			Addr:         ":8080",
+			Handler:      mux,
+			ReadTimeout:  5 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			IdleTimeout:  120 * time.Second,
+		}
+
 		log.Println("Health check endpoint listening on :8080")
-		log.Fatal(http.ListenAndServe(":8080", nil))
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Health check server failed: %v", err)
+		}
 	}()
 
 	// Start gRPC server

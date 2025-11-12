@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/mazenh0/auroraseek/internal/index"
 	"github.com/mazenh0/auroraseek/internal/kafka"
@@ -64,12 +65,39 @@ func main() {
 
 	// Health check endpoint
 	go func() {
-		http.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(200)
+		mux := http.NewServeMux()
+		
+		// Liveness probe
+		mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("ok"))
 		})
+		
+		// Readiness probe
+		mux.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) {
+			docCount, _, _ := mem.Stats()
+			status := map[string]interface{}{
+				"status":     "ok",
+				"doc_count":  docCount,
+				"index_path": dbPath,
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(status)
+		})
+
+		server := &http.Server{
+			Addr:         ":8080",
+			Handler:      mux,
+			ReadTimeout:  5 * time.Second,
+			WriteTimeout: 10 * time.Second,
+			IdleTimeout:  120 * time.Second,
+		}
+
 		log.Println("Health check endpoint listening on :8080")
-		log.Fatal(http.ListenAndServe(":8080", nil))
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Health check server failed: %v", err)
+		}
 	}()
 
 	// Main indexing loop
