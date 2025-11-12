@@ -184,14 +184,18 @@ auroraseek/
 │   └── query/       # Search API service
 ├── internal/
 │   ├── bm25/        # BM25 ranking algorithm
+│   ├── circuitbreaker/  # Circuit breaker pattern
 │   ├── crawler/     # Web crawling utilities
-│   ├── index/       # In-memory inverted index
+│   ├── httpclient/  # HTTP client with retry logic
+│   ├── index/       # Persistent inverted index
 │   ├── kafka/       # Kafka producer/consumer
 │   └── util/        # Text processing utilities
 ├── proto/           # Protocol Buffer definitions
 ├── reranker/        # Python semantic reranker
 ├── k8s/             # Kubernetes deployments
-└── gen/             # Generated protobuf code
+├── docs/            # Documentation
+│   └── IMPROVEMENTS.md  # Improvement roadmap
+└── gen/             # Generated protobuf code (gitignored)
 ```
 
 ## 🎓 What Makes This Special
@@ -232,7 +236,7 @@ This means you can search for "programming language" and find results about "Go"
 
 ## 🔮 What's Next?
 
-Want to improve AuroraSeek? Check out our [IMPROVEMENTS.md](IMPROVEMENTS.md) for a comprehensive list of enhancements!
+Want to improve AuroraSeek? Check out our [IMPROVEMENTS.md](docs/IMPROVEMENTS.md) for a comprehensive list of enhancements!
 
 **Quick wins you can implement:**
 - ✅ Add health checks to all services
@@ -249,7 +253,7 @@ Want to improve AuroraSeek? Check out our [IMPROVEMENTS.md](IMPROVEMENTS.md) for
 - 📊 Observability (metrics & tracing)
 - 🧪 CI/CD pipeline
 
-See [IMPROVEMENTS.md](IMPROVEMENTS.md) for the full roadmap with priorities and implementation guide!
+See [IMPROVEMENTS.md](docs/IMPROVEMENTS.md) for the full roadmap with priorities and implementation guide!
 
 ## 🤝 Contributing
 

@@ -28,7 +28,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to create persistent index: %v", err)
 	}
-	defer mem.Close()
 
 	// Get initial stats
 	docCount, totalLen, _ := mem.Stats()
@@ -49,7 +48,6 @@ func main() {
 	log.Printf("Connecting to Kafka at %v, topic: %s, group: %s", brokers, topic, group)
 
 	r := kafka.NewReader(brokers, topic, group)
-	defer r.Close()
 
 	// Set up graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -63,75 +61,125 @@ func main() {
 		cancel()
 	}()
 
-	// Health check endpoint
-	go func() {
-		mux := http.NewServeMux()
-		
-		// Liveness probe
-		mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("ok"))
-		})
-		
-		// Readiness probe
-		mux.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) {
-			docCount, _, _ := mem.Stats()
-			status := map[string]interface{}{
-				"status":     "ok",
-				"doc_count":  docCount,
-				"index_path": dbPath,
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(status)
-		})
-
-		server := &http.Server{
-			Addr:         ":8080",
-			Handler:      mux,
-			ReadTimeout:  5 * time.Second,
-			WriteTimeout: 10 * time.Second,
-			IdleTimeout:  120 * time.Second,
+	// Health check server
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) {
+		docCount, _, _ := mem.Stats()
+		status := map[string]interface{}{
+			"status":     "ok",
+			"doc_count":  docCount,
+			"index_path": dbPath,
 		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(status)
+	})
 
+	healthServer := &http.Server{
+		Addr:         ":8080",
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// Start health check server
+	go func() {
 		log.Println("Health check endpoint listening on :8080")
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := healthServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Health check server failed: %v", err)
 		}
 	}()
 
 	// Main indexing loop
 	log.Println("Starting indexer...")
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("Shutting down indexer...")
-			return
-		default:
-			m, err := r.ReadMessage(ctx)
-			if err != nil {
-				if ctx.Err() != nil {
-					return
+	indexingDone := make(chan struct{})
+	go func() {
+		defer close(indexingDone)
+		for {
+			select {
+			case <-ctx.Done():
+				log.Println("Indexing loop received shutdown signal")
+				return
+			default:
+				m, err := r.ReadMessage(ctx)
+				if err != nil {
+					if ctx.Err() != nil {
+						return
+					}
+					log.Printf("Error reading message: %v", err)
+					// Brief delay before retry to avoid tight loop
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(1 * time.Second):
+					}
+					continue
 				}
-				log.Printf("Error reading message: %v", err)
-				continue
-			}
 
-			var pg Page
-			if err := json.Unmarshal(m.Value, &pg); err != nil {
-				log.Printf("Error unmarshaling page: %v", err)
-				continue
-			}
+				var pg Page
+				if err := json.Unmarshal(m.Value, &pg); err != nil {
+					log.Printf("Error unmarshaling page: %v", err)
+					continue
+				}
 
-			if err := mem.Add(pg.ID, pg.URL, pg.Title, pg.Body); err != nil {
-				log.Printf("Error adding document %s: %v", pg.ID, err)
-				continue
-			}
+				if err := mem.Add(pg.ID, pg.URL, pg.Title, pg.Body); err != nil {
+					log.Printf("Error adding document %s: %v", pg.ID, err)
+					continue
+				}
 
-			docCount, _, _ := mem.Stats()
-			log.Printf("Indexed %s (total: %d documents)", pg.ID, docCount)
+				docCount, _, _ := mem.Stats()
+				log.Printf("Indexed %s (total: %d documents)", pg.ID, docCount)
+			}
 		}
+	}()
+
+	// Wait for shutdown signal
+	<-ctx.Done()
+	log.Println("Shutdown signal received, starting graceful shutdown...")
+
+	// Create shutdown context with timeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	// Shutdown health check server
+	log.Println("Shutting down health check server...")
+	if err := healthServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Error shutting down health check server: %v", err)
+	} else {
+		log.Println("Health check server shut down successfully")
 	}
+
+	// Close Kafka reader
+	log.Println("Closing Kafka reader...")
+	if err := r.Close(); err != nil {
+		log.Printf("Error closing Kafka reader: %v", err)
+	} else {
+		log.Println("Kafka reader closed successfully")
+	}
+
+	// Wait for indexing loop to finish (with timeout)
+	log.Println("Waiting for indexing loop to finish...")
+	select {
+	case <-indexingDone:
+		log.Println("Indexing loop finished")
+	case <-shutdownCtx.Done():
+		log.Println("Shutdown timeout reached, forcing shutdown")
+	}
+
+	// Close index
+	log.Println("Closing index...")
+	if err := mem.Close(); err != nil {
+		log.Printf("Error closing index: %v", err)
+	} else {
+		log.Println("Index closed successfully")
+	}
+
+	log.Println("Graceful shutdown complete")
 }
 
 func getenv(k, d string) string {

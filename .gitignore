@@ -5,11 +5,11 @@
 *.so
 *.dylib
 
-# Build artifacts (root directory binaries only)
-/crawler
-/indexer
-/query
-/reranker
+# Build artifacts (root directory binaries)
+crawler
+indexer
+query
+reranker
 
 # Test binary, built with `go test -c`
 *.test

@@ -25,12 +25,12 @@ import (
 )
 
 var (
-	mem           *index.PersistentIndex
-	memMu         sync.RWMutex
-	lastReload    time.Time
-	httpClient    *httpclient.Client
+	mem            *index.PersistentIndex
+	memMu          sync.RWMutex
+	lastReload     time.Time
+	httpClient     *httpclient.Client
 	circuitBreaker *circuitbreaker.CircuitBreaker
-	rerankerURL   string
+	rerankerURL    string
 )
 
 // loadIndex loads the persistent index from disk
@@ -72,7 +72,7 @@ func reloadIndex() error {
 
 	// Quick check: get document count from database without full reload
 	dbPath := getenv("INDEX_DB_PATH", "/data/index.db")
-	
+
 	// Open database in read-only mode to check document count
 	db, err := bbolt.Open(dbPath, 0666, &bbolt.Options{ReadOnly: true})
 	if err != nil {
@@ -99,7 +99,7 @@ func reloadIndex() error {
 	// Only reload if document count increased
 	if newDocCount > oldDocCount {
 		log.Printf("Detected new documents: %d -> %d (+%d), reloading index...", oldDocCount, newDocCount, newDocCount-oldDocCount)
-		
+
 		// Create new persistent index
 		newMem, err := index.NewPersistent(dbPath)
 		if err != nil {
@@ -108,13 +108,11 @@ func reloadIndex() error {
 
 		// Atomically replace the index
 		memMu.Lock()
-		if oldMem != nil {
-			oldMem.Close()
-		}
+		oldMem.Close() // oldMem is guaranteed to be non-nil (checked earlier)
 		mem = newMem
 		lastReload = time.Now()
 		memMu.Unlock()
-		
+
 		log.Printf("Successfully reloaded index: %d documents", newDocCount)
 	}
 
@@ -281,7 +279,7 @@ func main() {
 	cbConfig.SuccessThreshold = 2
 	cbConfig.Timeout = 30 * time.Second
 	circuitBreaker = circuitbreaker.NewCircuitBreaker(cbConfig)
-	
+
 	// Set up circuit breaker state change logging
 	circuitBreaker.SetOnStateChange(func(from, to circuitbreaker.State) {
 		log.Printf("Circuit breaker state changed: %v -> %v (reranker service)", from, to)
@@ -299,7 +297,6 @@ func main() {
 	if err := loadIndex(); err != nil {
 		log.Fatalf("Failed to load index: %v", err)
 	}
-	defer mem.Close()
 
 	// Set up graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -329,67 +326,64 @@ func main() {
 		}
 	}()
 
-	// Health check endpoint
-	go func() {
-		mux := http.NewServeMux()
-		
-		// Liveness probe
-		mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("ok"))
-		})
-		
-		// Readiness probe with detailed status
-		mux.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) {
-			memMu.RLock()
-			currentMem := mem
-			reloadTime := lastReload
-			memMu.RUnlock()
+	// Health check server
+	healthMux := http.NewServeMux()
+	healthMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("ok"))
+	})
+	healthMux.HandleFunc("/ready", func(w http.ResponseWriter, _ *http.Request) {
+		memMu.RLock()
+		currentMem := mem
+		reloadTime := lastReload
+		memMu.RUnlock()
 
-			docCount := 0
-			indexReady := currentMem != nil
-			if currentMem != nil {
-				docCount, _, _ = currentMem.Stats()
-			}
-
-			// Check circuit breaker state
-			cbState := circuitBreaker.State()
-			cbFailures, cbSuccesses, _ := circuitBreaker.Stats()
-
-			status := map[string]interface{}{
-				"status":       "ok",
-				"doc_count":    docCount,
-				"index_ready":  indexReady,
-				"index_path":   getenv("INDEX_DB_PATH", "/data/index.db"),
-				"last_reload":  reloadTime.Format(time.RFC3339),
-				"reranker_url": rerankerURL,
-				"circuit_breaker": map[string]interface{}{
-					"state":    cbState.String(),
-					"failures": cbFailures,
-					"successes": cbSuccesses,
-				},
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			if !indexReady {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				status["status"] = "not ready"
-			} else {
-				w.WriteHeader(http.StatusOK)
-			}
-			json.NewEncoder(w).Encode(status)
-		})
-
-		server := &http.Server{
-			Addr:         ":8080",
-			Handler:      mux,
-			ReadTimeout:  5 * time.Second,
-			WriteTimeout: 10 * time.Second,
-			IdleTimeout:  120 * time.Second,
+		docCount := 0
+		indexReady := currentMem != nil
+		if currentMem != nil {
+			docCount, _, _ = currentMem.Stats()
 		}
 
+		// Check circuit breaker state
+		cbState := circuitBreaker.State()
+		cbFailures, cbSuccesses, _ := circuitBreaker.Stats()
+
+		status := map[string]interface{}{
+			"status":       "ok",
+			"doc_count":    docCount,
+			"index_ready":  indexReady,
+			"index_path":   getenv("INDEX_DB_PATH", "/data/index.db"),
+			"last_reload":  reloadTime.Format(time.RFC3339),
+			"reranker_url": rerankerURL,
+			"circuit_breaker": map[string]interface{}{
+				"state":     cbState.String(),
+				"failures":  cbFailures,
+				"successes": cbSuccesses,
+			},
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if !indexReady {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			status["status"] = "not ready"
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+		json.NewEncoder(w).Encode(status)
+	})
+
+	healthServer := &http.Server{
+		Addr:         ":8080",
+		Handler:      healthMux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	// Start health check server
+	go func() {
 		log.Println("Health check endpoint listening on :8080")
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := healthServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Health check server failed: %v", err)
 		}
 	}()
@@ -400,21 +394,62 @@ func main() {
 		log.Fatal(err)
 	}
 
-	s := grpc.NewServer()
-	pb.RegisterSearchServiceServer(s, &server{})
+	grpcServer := grpc.NewServer()
+	pb.RegisterSearchServiceServer(grpcServer, &server{})
 	log.Println("Query service listening on", lis.Addr())
 
-	// Start server in a goroutine
+	// Start gRPC server in a goroutine
+	grpcServerDone := make(chan struct{})
 	go func() {
-		if err := s.Serve(lis); err != nil {
-			log.Fatalf("Failed to serve: %v", err)
+		defer close(grpcServerDone)
+		if err := grpcServer.Serve(lis); err != nil {
+			log.Printf("gRPC server error: %v", err)
 		}
 	}()
 
 	// Wait for shutdown signal
 	<-ctx.Done()
-	log.Println("Shutting down query service...")
-	s.GracefulStop()
+	log.Println("Shutdown signal received, starting graceful shutdown...")
+
+	// Create shutdown context with timeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer shutdownCancel()
+
+	// Stop accepting new gRPC connections and wait for in-flight requests
+	log.Println("Shutting down gRPC server...")
+	grpcShutdownDone := make(chan struct{})
+	go func() {
+		defer close(grpcShutdownDone)
+		grpcServer.GracefulStop()
+	}()
+
+	// Wait for gRPC server to finish with timeout
+	select {
+	case <-grpcShutdownDone:
+		log.Println("gRPC server shut down successfully")
+	case <-shutdownCtx.Done():
+		log.Println("gRPC shutdown timeout reached, forcing stop")
+		grpcServer.Stop()
+		<-grpcShutdownDone
+	}
+
+	// Shutdown health check server
+	log.Println("Shutting down health check server...")
+	if err := healthServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Error shutting down health check server: %v", err)
+	} else {
+		log.Println("Health check server shut down successfully")
+	}
+
+	// Close index
+	log.Println("Closing index...")
+	if err := mem.Close(); err != nil {
+		log.Printf("Error closing index: %v", err)
+	} else {
+		log.Println("Index closed successfully")
+	}
+
+	log.Println("Graceful shutdown complete")
 }
 
 func getenv(k, d string) string {
