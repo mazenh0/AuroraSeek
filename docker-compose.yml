@@ -1,5 +1,9 @@
 version: "3.9"
 
+volumes:
+  index_data:
+    driver: local
+
 services:
   redpanda:
     image: docker.redpanda.com/redpandadata/redpanda:v24.2.7
@@ -41,6 +45,9 @@ services:
     environment:
       - KAFKA_BROKERS=redpanda:9092
       - KAFKA_TOPIC_PAGES=pages
+      - INDEX_DB_PATH=/data/index.db
+    volumes:
+      - index_data:/data
     depends_on:
       redpanda:
         condition: service_healthy
@@ -66,8 +73,13 @@ services:
     environment:
       - QUERY_ADDR=:50051
       - RERANKER_URL=http://reranker:8000/rerank
+      - INDEX_DB_PATH=/data/index.db
+    volumes:
+      - index_data:/data
     ports:
       - "50051:50051"
+      - "8080:8080"
     depends_on:
       - indexer
       - reranker
+    restart: on-failure

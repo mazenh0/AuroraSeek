@@ -221,25 +221,35 @@ This means you can search for "programming language" and find results about "Go"
 - **Semantic embeddings** for relevance
 - **gRPC** for low-latency API
 - **Kafka** for scalable message processing
-- **In-memory index** for instant queries (for demo purposes)
+- **Persistent index** with in-memory cache for instant queries
 
 ## 📝 Notes & Limitations
 
-- **Index is in-memory** - Data is lost on restart (persistence coming soon!)
+- **Persistent index** - Index stored in bbolt database, survives restarts ✅
 - **No sharding** - Single index instance (fine for demos)
 - **No vector database** - Embeddings computed on-the-fly (FAISS/Qdrant coming soon)
 - **Basic robots.txt** - Respects some rules but not full compliance yet
 
 ## 🔮 What's Next?
 
-Potential improvements:
-- [ ] Persistent index storage (bbolt/BadgerDB)
-- [ ] Vector database integration (FAISS/Qdrant)
-- [ ] Distributed sharding
-- [ ] Full robots.txt support
-- [ ] Authentication & authorization
-- [ ] Query analytics
-- [ ] Multi-language support
+Want to improve AuroraSeek? Check out our [IMPROVEMENTS.md](IMPROVEMENTS.md) for a comprehensive list of enhancements!
+
+**Quick wins you can implement:**
+- ✅ Add health checks to all services
+- ✅ Add timeouts and retry logic
+- ✅ Implement structured logging
+- ✅ Add input validation
+- ✅ Add tests (unit + integration)
+
+**Major improvements:**
+- ✅ Persistent index storage (bbolt) - DONE!
+- 🔍 Vector database integration (FAISS/Qdrant)
+- 🌐 REST API alongside gRPC
+- 🔒 Authentication & authorization
+- 📊 Observability (metrics & tracing)
+- 🧪 CI/CD pipeline
+
+See [IMPROVEMENTS.md](IMPROVEMENTS.md) for the full roadmap with priorities and implementation guide!
 
 ## 🤝 Contributing
 
