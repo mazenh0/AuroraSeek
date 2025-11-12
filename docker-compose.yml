@@ -51,7 +51,10 @@ services:
     command: ["/app/crawler"]
     environment:
       - KAFKA_BROKERS=redpanda:9092
-      - KAFKA_TOPIC_PAGES=pages
+      - CRAWLER_TOPIC=pages
+      - CRAWLER_SEED_URLS=https://example.com,https://golang.org
+      - CRAWLER_MAX_PAGES=100
+      - CRAWLER_MAX_CONCURRENCY=3
     depends_on:
       redpanda:
         condition: service_healthy

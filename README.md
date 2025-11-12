@@ -4,6 +4,7 @@ A lean, runnable starter for a distributed search stack with BM25 + vectors, Kaf
 
 ## Features
 
+- **Real Web Crawler**: HTTP fetching, HTML parsing, link extraction, and URL normalization
 - **BM25 Ranking**: Classic information retrieval algorithm for text search
 - **Kafka/Redpanda**: Message queue for distributed indexing pipeline
 - **gRPC**: High-performance RPC for search queries
@@ -86,8 +87,25 @@ This will:
 - Start Redpanda (Kafka)
 - Build and start the Reranker service
 - Build and start the Indexer service
-- Build and start the Crawler service
+- Build and start the Crawler service (crawls web pages from seed URLs)
 - Build and start the Query service
+
+### Crawler Configuration
+
+The crawler can be configured via environment variables:
+
+- `CRAWLER_SEED_URLS`: Comma-separated list of seed URLs (default: `https://example.com,https://golang.org`)
+- `CRAWLER_MAX_PAGES`: Maximum number of pages to crawl (default: `100`)
+- `CRAWLER_MAX_CONCURRENCY`: Number of concurrent workers (default: `3`)
+- `CRAWLER_TOPIC`: Kafka topic to publish pages to (default: `pages`)
+
+Example:
+```bash
+docker run -e CRAWLER_SEED_URLS="https://example.com,https://golang.org" \
+           -e CRAWLER_MAX_PAGES=500 \
+           -e CRAWLER_MAX_CONCURRENCY=5 \
+           auroraseek-crawler
+```
 
 ### 4. Test the Search
 
@@ -152,6 +170,7 @@ auroraseek/
 │   └── query/       # Query service (gRPC server)
 ├── internal/
 │   ├── bm25/        # BM25 ranking algorithm
+│   ├── crawler/     # Web crawler with HTTP fetching and HTML parsing
 │   ├── kafka/       # Kafka producer/consumer helpers
 │   ├── index/       # In-memory inverted index
 │   └── util/        # Text normalization utilities
@@ -161,11 +180,24 @@ auroraseek/
 └── gen/             # Generated protobuf code
 ```
 
+## Crawler Features
+
+The web crawler includes:
+- **HTTP Fetching**: Robust HTTP client with timeout and retry logic
+- **HTML Parsing**: Extracts title, body text, and links using goquery
+- **URL Normalization**: Normalizes URLs (removes fragments, trailing slashes, etc.)
+- **Deduplication**: Tracks visited URLs to avoid re-crawling
+- **Rate Limiting**: Respects per-domain rate limits (1 second default)
+- **Link Following**: Extracts and follows links from crawled pages
+- **Concurrent Workers**: Multiple workers for parallel crawling
+- **Graceful Shutdown**: Handles shutdown signals properly
+
 ## Notes
 
 - Index is in-memory; persistence, sharding, and ANN are out of scope for v0.1
 - Reranker is a trivial cosine baseline; drop in a cross-encoder later
 - Swap Redpanda with managed Kafka in prod; add mTLS/JWT at the gateway
+- Crawler respects robots.txt basics but doesn't implement full robots.txt parsing yet
 
 ## License
 
